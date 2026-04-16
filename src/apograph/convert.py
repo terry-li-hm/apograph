@@ -143,6 +143,31 @@ def convert(
             para.font.italic = elem.get("fontStyle") == "italic"
             para.font.name = font_override or "Century Gothic"
 
+            # Line-height correction: PPT renders ~20% tighter than CSS
+            css_line_height = elem.get("lineHeight", "")
+            if css_line_height and css_line_height not in ("normal", ""):
+                try:
+                    lh_px = float(css_line_height.replace("px", ""))
+                    lh_ratio = lh_px / font_size_px if font_size_px else 1.0
+                    # PPT line_spacing as float = multiple of single-space
+                    para.line_spacing = lh_ratio * 0.85
+                except (ValueError, ZeroDivisionError):
+                    pass
+
+            # Letter-spacing: CSS px → PPT charSpacing (hundredths of a point)
+            css_letter_spacing = elem.get("letterSpacing", "")
+            if css_letter_spacing and css_letter_spacing not in ("normal", "0px"):
+                try:
+                    ls_px = float(css_letter_spacing.replace("px", ""))
+                    if ls_px != 0:
+                        char_spacing = ls_px * 72 / 96 * 100
+                        for run in para.runs:
+                            run.font._element.attrib[
+                                "{http://schemas.openxmlformats.org/drawingml/2006/main}spc"
+                            ] = str(int(char_spacing))
+                except ValueError:
+                    pass
+
             para.space_after = Pt(0)
             para.space_before = Pt(0)
 
