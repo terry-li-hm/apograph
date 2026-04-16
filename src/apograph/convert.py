@@ -111,7 +111,10 @@ def convert(
 
         # --- Horizontal rules ---
         if "rule" in cls and tag == "div":
-            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, max(height, _px_to_emu(1, scale)))
+            # Enforce minimum 0.75pt height so the line is visible in PPTX
+            min_height = Pt(0.75)
+            rule_height = max(height, min_height)
+            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, rule_height)
             shape.fill.solid()
             shape.fill.fore_color.rgb = RGBColor(0xD7, 0xD8, 0xD6)
             shape.line.fill.background()
