@@ -129,7 +129,10 @@ def convert(
             display_text = text.strip()
             if elem.get("textTransform") == "uppercase":
                 display_text = display_text.upper()
-            para.text = display_text
+
+            # Handle line breaks (<br> → multiple paragraphs)
+            lines = display_text.split("\n")
+            para.text = lines[0]
 
             # Font sizing: CSS px → PPTX pt at slide scale
             font_size_px = elem.get("fontSize", 12)
@@ -143,6 +146,18 @@ def convert(
             para.font.italic = elem.get("fontStyle") == "italic"
             para.font.name = font_override or "Century Gothic"
 
+            # Add remaining lines as new paragraphs
+            for extra_line in lines[1:]:
+                new_para = text_frame.add_paragraph()
+                new_para.text = extra_line.strip()
+                new_para.font.size = Pt(pt_size)
+                new_para.font.color.rgb = _parse_rgb(elem.get("color", "rgb(51,51,51)"))
+                new_para.font.bold = weight in ("700", "bold", "800", "900")
+                new_para.font.italic = elem.get("fontStyle") == "italic"
+                new_para.font.name = font_override or "Century Gothic"
+                new_para.space_after = Pt(0)
+                new_para.space_before = Pt(0)
+
             # Line-height correction: PPT renders ~20% tighter than CSS
             css_line_height = elem.get("lineHeight", "")
             if css_line_height and css_line_height not in ("normal", ""):
@@ -155,16 +170,26 @@ def convert(
                     pass
 
             # Letter-spacing: CSS px → PPT charSpacing (hundredths of a point)
+            # Applied to the default run properties on the paragraph
             css_letter_spacing = elem.get("letterSpacing", "")
             if css_letter_spacing and css_letter_spacing not in ("normal", "0px"):
                 try:
                     ls_px = float(css_letter_spacing.replace("px", ""))
                     if ls_px != 0:
-                        char_spacing = ls_px * 72 / 96 * 100
-                        for run in para.runs:
-                            run.font._element.attrib[
-                                "{http://schemas.openxmlformats.org/drawingml/2006/main}spc"
-                            ] = str(int(char_spacing))
+                        char_spacing = int(ls_px * 72 / 96 * 100)
+                        from lxml import etree
+                        nsmap = {"a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+                        # Set on default run properties
+                        def_rpr = para._p.find("a:pPr/a:defRPr", nsmap)
+                        if def_rpr is None:
+                            p_pr = para._p.find("a:pPr", nsmap)
+                            if p_pr is None:
+                                p_pr = etree.SubElement(para._p, f"{{{nsmap['a']}}}pPr")
+                            def_rpr = etree.SubElement(p_pr, f"{{{nsmap['a']}}}defRPr")
+                        def_rpr.set("spc", str(char_spacing))
+                        # Also set on existing runs
+                        for run_elem in para._p.findall("a:r/a:rPr", nsmap):
+                            run_elem.set("spc", str(char_spacing))
                 except ValueError:
                     pass
 

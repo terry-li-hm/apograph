@@ -23,11 +23,23 @@ JS_EXTRACT = """() => {
 
         const tag = el.tagName.toLowerCase();
         const cls = el.className || '';
-        const text = el.childNodes.length === 1 && el.childNodes[0].nodeType === 3
-            ? el.textContent.trim() : null;
+        // Text extraction: leaf nodes OR elements with only <br>/inline children
+        const innerHTML = el.innerHTML || '';
+        const hasLineBreak = innerHTML.includes('<br');
+        const isLeafText = el.childNodes.length === 1 && el.childNodes[0].nodeType === 3;
+        // Element with <br> but no block children = text element with line breaks
+        const blockTags = new Set(['div','ul','ol','li','p','section','article','header','footer','nav','main']);
+        const hasBlockChild = Array.from(el.children).some(c => blockTags.has(c.tagName.toLowerCase()));
+        const isBrText = hasLineBreak && !hasBlockChild && el.children.length <= 2;
+        const text = (isLeafText || isBrText) && el.textContent.trim().length > 0
+            ? null : null;  // computed below
+        // Use innerText for <br> elements (preserves newlines), textContent for leaf
+        const capturedText = isBrText ? el.innerText.trim()
+            : isLeafText ? el.textContent.trim()
+            : null;
 
         const info = {
-            tag, cls, text, x, y, w, h,
+            tag, cls, text: capturedText, x, y, w, h,
             fontSize: parseFloat(style.fontSize),
             fontWeight: style.fontWeight,
             fontStyle: style.fontStyle,
@@ -49,6 +61,8 @@ JS_EXTRACT = """() => {
         }
 
         results.push(info);
+        // Skip recursing into <br>-text elements to avoid duplicate child text
+        if (isBrText) return;
         for (const child of el.children) {
             extract(child, depth + 1);
         }
