@@ -44,6 +44,7 @@ def convert(
     accent_color: str | None = None,
     accent_height_px: float = 3.0,
     font_override: str | None = None,
+    hybrid: bool = False,
 ) -> Path:
     """Build a PPTX from extracted HTML slide data.
 
@@ -64,24 +65,34 @@ def convert(
     prs.slide_height = Emu(int(slide_height_in * 914400))
     slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
 
-    # Background — detect from first element or default
-    bg_color = RGBColor(0xFC, 0xFB, 0xFA)
-    for elem in data.elements:
-        if elem.get("depth") == 0:
-            bg_css = elem.get("backgroundColor", "")
-            if bg_css and "rgba(0, 0, 0, 0)" not in bg_css:
-                bg_color = _parse_rgb(bg_css)
-            break
-    slide.background.fill.solid()
-    slide.background.fill.fore_color.rgb = bg_color
+    if hybrid and data.background_image:
+        # Hybrid mode: use screenshot as background, overlay editable text
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+            tmp.write(data.background_image)
+            tmp_path = tmp.name
+        slide.shapes.add_picture(
+            tmp_path, 0, 0, prs.slide_width, prs.slide_height)
+        Path(tmp_path).unlink(missing_ok=True)
+    else:
+        # Native mode: solid background
+        bg_color = RGBColor(0xFC, 0xFB, 0xFA)
+        for elem in data.elements:
+            if elem.get("depth") == 0:
+                bg_css = elem.get("backgroundColor", "")
+                if bg_css and "rgba(0, 0, 0, 0)" not in bg_css:
+                    bg_color = _parse_rgb(bg_css)
+                break
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = bg_color
 
-    # Accent bar (::before pseudo-element not captured by JS)
-    if accent_color:
-        accent = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, _px_to_emu(accent_height_px, scale))
-        accent.fill.solid()
-        accent.fill.fore_color.rgb = _parse_rgb(accent_color)
-        accent.line.fill.background()
+        # Accent bar (::before pseudo-element not captured by JS)
+        if accent_color:
+            accent = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, _px_to_emu(accent_height_px, scale))
+            accent.fill.solid()
+            accent.fill.fore_color.rgb = _parse_rgb(accent_color)
+            accent.line.fill.background()
 
     for elem in data.elements:
         left = _px_to_emu(elem["x"], scale)
@@ -94,30 +105,33 @@ def convert(
 
         # --- Images ---
         if elem.get("isImage"):
-            src = elem.get("src", "")
-            if src and image_base_dir:
-                img_path = (image_base_dir / Path(src).name)
-                if img_path.exists():
-                    slide.shapes.add_picture(str(img_path), left, top, width, height)
+            if not hybrid:
+                src = elem.get("src", "")
+                if src and image_base_dir:
+                    img_path = (image_base_dir / Path(src).name)
+                    if img_path.exists():
+                        slide.shapes.add_picture(str(img_path), left, top, width, height)
             continue
 
         # --- Placeholder circles ---
         if elem.get("isPlaceholder"):
-            shape = slide.shapes.add_shape(MSO_SHAPE.OVAL, left, top, width, height)
-            shape.fill.solid()
-            shape.fill.fore_color.rgb = RGBColor(0xED, 0xED, 0xED)
-            shape.line.fill.background()
+            if not hybrid:
+                shape = slide.shapes.add_shape(MSO_SHAPE.OVAL, left, top, width, height)
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = RGBColor(0xED, 0xED, 0xED)
+                shape.line.fill.background()
             continue
 
         # --- Horizontal rules ---
         if "rule" in cls and tag == "div":
-            # Enforce minimum 0.75pt height so the line is visible in PPTX
-            min_height = Pt(0.75)
-            rule_height = max(height, min_height)
-            shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, rule_height)
-            shape.fill.solid()
-            shape.fill.fore_color.rgb = RGBColor(0xD7, 0xD8, 0xD6)
-            shape.line.fill.background()
+            if not hybrid:
+                # Enforce minimum 1.5pt height so the line is visible in PPTX
+                min_height = Pt(1.5)
+                rule_height = max(height, min_height)
+                shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, rule_height)
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = RGBColor(0xD7, 0xD8, 0xD6)
+                shape.line.fill.background()
             continue
 
         # --- Text ---

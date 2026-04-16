@@ -28,6 +28,7 @@ def run(
     slide_height: float = 7.5,
     accent_color: str | None = None,
     font: str | None = None,
+    hybrid: bool = False,
     as_json: bool = False,
     extract_only: bool = False,
 ) -> None:
@@ -41,6 +42,7 @@ def run(
         slide_height: PPTX slide height in inches (default: 7.5 for 16:9).
         accent_color: CSS color for top accent bar (e.g. 'rgb(219,0,17)').
         font: Override all text with this font family.
+        hybrid: Pixel-perfect background image + editable text overlays.
         as_json: Output extracted layout as JSON (for debugging).
         extract_only: Only extract layout, don't generate PPTX.
     """
@@ -49,7 +51,7 @@ def run(
         raise SystemExit(f"File not found: {html}")
 
     # Extract layout from HTML
-    data = extract_from_html(html)
+    data = extract_from_html(html, hybrid=hybrid)
 
     if extract_only or as_json:
         payload = {
@@ -82,6 +84,7 @@ def run(
         image_base_dir=image_dir,
         accent_color=accent_color,
         font_override=font,
+        hybrid=hybrid,
     )
     print(f"Saved: {result}")
 

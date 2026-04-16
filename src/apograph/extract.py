@@ -85,14 +85,26 @@ class SlideData:
     width_px: float
     height_px: float
     elements: list[dict]
+    background_image: bytes | None = None
 
 
-def extract_from_html(html_path: Path, viewport_width: int = 1200, viewport_height: int = 750) -> SlideData:
-    """Render HTML in headless Chromium and extract all element positions + styles."""
+def extract_from_html(
+    html_path: Path,
+    viewport_width: int = 1200,
+    viewport_height: int = 750,
+    *,
+    hybrid: bool = False,
+) -> SlideData:
+    """Render HTML in headless Chromium and extract all element positions + styles.
+
+    If hybrid=True, also captures a screenshot with text hidden (for background image).
+    """
     html_path = html_path.resolve()
     if not html_path.exists():
         msg = f"HTML file not found: {html_path}"
         raise FileNotFoundError(msg)
+
+    bg_image: bytes | None = None
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
@@ -101,10 +113,34 @@ def extract_from_html(html_path: Path, viewport_width: int = 1200, viewport_heig
         page.wait_for_timeout(1000)
 
         result = page.evaluate(JS_EXTRACT)
+
+        if hybrid:
+            # Hide all text elements, screenshot the visual layer only
+            page.evaluate("""() => {
+                const slide = document.querySelector('.slide') || document.body;
+                const walker = document.createTreeWalker(slide, NodeFilter.SHOW_TEXT);
+                const textNodes = [];
+                while (walker.nextNode()) textNodes.push(walker.currentNode);
+                // Make all text transparent (keeps layout, hides text)
+                const style = document.createElement('style');
+                style.textContent = `
+                    .slide, .slide * {
+                        color: transparent !important;
+                        -webkit-text-fill-color: transparent !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }""")
+            page.wait_for_timeout(200)
+            slide_el = page.query_selector(".slide") or page.query_selector("body")
+            if slide_el:
+                bg_image = slide_el.screenshot(type="png")
+
         browser.close()
 
     return SlideData(
         width_px=result["slideWidth"],
         height_px=result["slideHeight"],
         elements=result["elements"],
+        background_image=bg_image,
     )
