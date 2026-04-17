@@ -108,7 +108,11 @@ def extract_from_html(
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": viewport_width, "height": viewport_height})
+        device_scale = 2 if hybrid else 1
+        page = browser.new_page(
+            viewport={"width": viewport_width, "height": viewport_height},
+            device_scale_factor=device_scale,
+        )
         page.goto(f"file://{html_path}")
         page.wait_for_timeout(1000)
 
